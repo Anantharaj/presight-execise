@@ -17,4 +17,14 @@ export const API_ROUTES = {
   health: '/api/health',
   users: '/api/users',
   userFacets: '/api/users/facets',
+  clientLogs: '/api/client-logs',
 } as const;
+
+/** Correlation header set by nginx (or the API) and echoed on every response. */
+export const REQUEST_ID_HEADER = 'x-request-id';
+
+export const CLIENT_LOG_LEVELS = ['info', 'warn', 'error'] as const;
+export type ClientLogLevel = (typeof CLIENT_LOG_LEVELS)[number];
+export const MAX_CLIENT_LOG_BATCH = 10;
+export const MAX_CLIENT_LOG_MESSAGE = 1000;
+export const MAX_CLIENT_LOG_STACK = 4000;

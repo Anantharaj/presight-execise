@@ -16,6 +16,8 @@ export interface ApiErrorBody {
     code: string;
     message: string;
     details?: unknown;
+    /** Correlates the error with server logs. */
+    requestId?: string;
   };
 }
 
