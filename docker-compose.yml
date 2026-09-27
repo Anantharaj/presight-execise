@@ -1,0 +1,37 @@
+name: presight
+
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    image: presight/server:local
+    environment:
+      NODE_ENV: production
+      LOG_LEVEL: info
+      SEED_ON_START: 'true'
+      SEED_USER_COUNT: '10000'
+      SEED_RANDOM_SEED: '42'
+    volumes:
+      - db-data:/app/data
+    # Internal only: the API is reached through nginx at /api. Add `ports: ['4000:4000']` to debug directly.
+    expose:
+      - '4000'
+    restart: unless-stopped
+
+  client:
+    build:
+      context: .
+      dockerfile: client/Dockerfile
+    image: presight/client:local
+    environment:
+      API_UPSTREAM: http://server:4000
+    ports:
+      - '${CLIENT_PORT:-8080}:8080'
+    depends_on:
+      server:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  db-data:
