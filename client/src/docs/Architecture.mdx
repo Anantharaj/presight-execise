@@ -1,0 +1,73 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Docs/Architecture" />
+
+# Architecture
+
+## Monorepo
+
+Yarn workspaces orchestrated by Lerna.
+
+```
+presight-execise/
+├── shared/   @presight/shared  – Zod schemas, constants and TS types used by BOTH client and server
+├── server/   @presight/server  – Express 5 API + SQLite (node:sqlite)
+├── client/   @presight/client  – React 19 + Vite + Tailwind 4 + TanStack Query/Virtual
+├── docker-compose.yml          – nginx (client) + node (server) + named volume for the DB
+└── AGENTS.md                   – rules for AI coding assistants
+```
+
+`shared` exports TypeScript source directly: Vite and tsx consume it natively and the server's production
+bundle (tsup) inlines it. **A contract change in `shared` is type-checked on both sides at once.**
+
+## Runtime topology
+
+```
+Browser ──► nginx (client container, :8080)
+              ├── /          → static React build (SPA fallback to index.html)
+              └── /api/*     → reverse proxy → server container (:4000)
+                                              └── SQLite file on a Docker volume
+```
+
+In local development the Vite dev server plays nginx's role and proxies `/api` to `localhost:4000`.
+The client always calls relative `/api/...` URLs, so the same build works in every environment.
+
+## Server layers
+
+```
+routes/        HTTP paths → controller methods
+controllers/   parse + validate input (Zod), call a service, send JSON
+services/      business rules (pagination cursor, facet policy); no HTTP, no SQL
+repositories/  SQL only; implements an interface so storage can be swapped
+models/        row types, row → DTO mappers, whitelisted sort columns
+db/            connection, versioned migrations, seeder
+middlewares/   error handler, 404
+container.ts   composition root (manual dependency injection)
+```
+
+Dependencies only point **downwards**. Controllers never touch SQL, repositories never know about HTTP.
+
+## Client layers
+
+```
+pages/            route-level layout; composes containers
+containers/       "smart": read URL state, run queries, pass plain props down
+components/users  domain presentational components (props in, callbacks out)
+components/ui     generic presentational building blocks
+queries/          TanStack Query hooks + query keys
+api/              typed HTTP functions
+state/            URL view-state parse/serialize + hook
+hooks/            generic hooks (element width, media query)
+lib/              tiny utilities (cn, http, format)
+```
+
+## Request lifecycle: changing a filter
+
+1. The user ticks **Chess** in the sidebar → `FacetGroup` calls `onToggle('Chess')`.
+2. `FilterSidebarContainer` calls `toggleHobby` from `useUserViewState`, which **writes the URL** (`?hobby=Chess`).
+3. Every container re-reads state from the URL. The query keys for the list and the facets change.
+4. TanStack Query aborts the stale requests and fetches `GET /api/users?hobby=Chess` and `GET /api/users/facets?hobby=Chess`.
+   The previous results stay on screen (dimmed) until the new data arrives (`keepPreviousData`).
+5. `VirtualGrid` scrolls back to the top. Scrolling near the end calls `fetchNextPage` with the keyset cursor.
+
+Because the URL is the single source of truth, **reload, share and Back/Forward all work for free**.

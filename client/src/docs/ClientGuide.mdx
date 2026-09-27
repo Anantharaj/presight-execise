@@ -1,0 +1,92 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Docs/Client Guide" />
+
+# Client Guide
+
+## Component categories
+
+| Kind | Folder | May use | Must not |
+| --- | --- | --- | --- |
+| **UI component** | `src/components/ui/<Name>/` | props, local UI state, `cn` | fetch data, read the URL, import domain types |
+| **Domain component** | `src/components/users/<Name>/` | UI components, shared types | fetch data, read the URL |
+| **Container** | `src/containers/` | query hooks, `useUserViewState`, components | contain heavy markup or styling |
+| **Page** | `src/pages/` | containers, layout | fetch data directly |
+
+Each component lives in its own folder:
+
+```
+components/ui/Button/
+├── Button.tsx          implementation + exported props interface (with JSDoc)
+├── Button.stories.tsx  stories: every meaningful state
+├── Button.test.tsx     optional: logic worth locking down
+└── index.ts            re-export
+```
+
+…and is re-exported from the category barrel (`components/ui/index.ts`), so consumers write
+`import { Button } from '@/components/ui'`.
+
+## Styling
+
+- Tailwind CSS v4 utilities; design tokens live in `src/index.css` under `@theme` (e.g. `brand-600`).
+- Merge classes with `cn()` so a caller's `className` can override defaults.
+- Components accept a `className` prop for layout tweaks from the parent.
+
+## URL state (`src/state`)
+
+`user-view-state.ts` contains **pure** functions (`parseViewState`, `serializeViewState`) that are unit-tested.
+`useUserViewState()` wraps them with React Router's `useSearchParams` and exposes actions:
+
+```ts
+const { state, setSearch, setSort, toggleHobby, toggleNationality, clearFilters } = useUserViewState();
+```
+
+| URL key | State field | Example |
+| --- | --- | --- |
+| `q` | `search` | `?q=john` |
+| `nationality` (repeatable) | `nationality[]` | `?nationality=French&nationality=German` |
+| `hobby` (repeatable) | `hobby[]` | `?hobby=Chess&hobby=Hiking` |
+| `sort` | `sortBy` | `?sort=age` |
+| `order` | `sortOrder` | `?order=desc` |
+
+Default values are omitted from the URL. Invalid values fall back to defaults instead of crashing.
+Search typing uses `replace` (no history spam). Filter and sort changes `push`, so Back undoes them.
+
+## Data fetching (`src/queries`, `src/api`)
+
+- `api/*.api.ts`: plain typed functions over `httpGet`. They know URLs, not React.
+- `queries/*.queries.ts`: TanStack Query hooks plus a hierarchical `userKeys` factory.
+- The list uses `useInfiniteQuery` with the server's opaque `nextCursor`. The facets use `useQuery`.
+  Sorting is **not** part of the facets key because it does not change counts.
+- `placeholderData: keepPreviousData` keeps old results visible (dimmed) while new ones load.
+- Errors are `ApiError` instances. 4xx responses are not retried.
+
+## Virtualization
+
+`VirtualGrid` (generic, in `components/ui`) uses `@tanstack/react-virtual`:
+
+- It computes the number of columns from the container width (`minColumnWidth`), then virtualizes **rows**.
+- Row heights are measured (`measureElement`), so content can grow safely.
+- It calls `onLoadMore` when the last rendered row is within `loadMoreThreshold` rows of the end.
+- `resetScrollKey` (a primitive) scrolls back to the top when filters change.
+
+## Recipes
+
+### Add a reusable UI component
+
+1. Create `components/ui/Badge/{Badge.tsx, Badge.stories.tsx, index.ts}`.
+2. Export a `BadgeProps` interface with JSDoc on non-obvious props, and accept `className`.
+3. Add `export * from './Badge'` to `components/ui/index.ts`.
+4. Write stories covering every visual state. Add `tags: ['autodocs']`.
+
+### Add a new filter (e.g. age range), end to end
+
+1. **shared**: add the field to `userFiltersSchema` in `shared/src/schemas/user-query.schema.ts`.
+2. **server**: add a fragment in `SqliteUserRepository.filterFragments` and a test in `server/test`.
+3. **client state**: add a URL key and parse/serialize logic in `state/user-view-state.ts`, plus tests.
+4. **client API**: add the param to `UserFilterParams` in `api/users.api.ts`.
+5. **UI**: build a presentational control in `components/users`, then wire it in a container.
+
+### Add a page
+
+Create `pages/MyPage.tsx`, register it in `app/router.tsx`, and compose it from containers.

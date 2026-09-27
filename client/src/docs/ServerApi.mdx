@@ -1,0 +1,104 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Docs/Server & API" />
+
+# Server & API
+
+## Data model
+
+```sql
+users        (id PK, avatar, first_name, last_name, age, nationality)
+hobbies      (id PK, name UNIQUE)
+user_hobbies (user_id FK, hobby_id FK, PRIMARY KEY (user_id, hobby_id))  -- WITHOUT ROWID
+
+-- (column, id) indexes back keyset pagination for each sortable column
+idx_users_first_name(first_name, id)  idx_users_last_name(last_name, id)
+idx_users_age(age, id)                idx_users_nationality(nationality, id)
+idx_user_hobbies_hobby(hobby_id, user_id)
+```
+
+Hobbies are normalized (a many-to-many join table), so "has all selected hobbies" and the per-hobby counts are
+simple, indexed SQL queries rather than JSON parsing.
+
+Schema changes are **versioned migrations** in `server/src/db/migrations`, tracked with `PRAGMA user_version`.
+To change the schema, add `002_xxx.ts` and append it to the `migrations` array. Never edit a migration that has shipped.
+
+The seeder (`yarn db:seed`) creates 10,000 deterministic users (Faker with a fixed seed). Nationalities and hobbies
+are weighted so that facet counts vary.
+
+## Endpoints
+
+### `GET /api/users`
+
+| Param | Type | Default | Notes |
+| --- | --- | --- | --- |
+| `search` | string ≤ 100 | `""` | Case-insensitive substring match on `first_name + ' ' + last_name` |
+| `nationality` | string, repeatable | — | Matches **any** selected value |
+| `hobby` | string, repeatable | — | Matches users with **all** selected values |
+| `sortBy` | `first_name` \| `last_name` \| `age` \| `nationality` | `first_name` | |
+| `sortOrder` | `asc` \| `desc` | `asc` | |
+| `limit` | 1–100 | 30 | |
+| `cursor` | string | — | Opaque; taken from `pageInfo.nextCursor` |
+
+```json
+{
+  "data": [{ "id": 1, "avatar": "…", "first_name": "Ada", "last_name": "Lovelace",
+             "age": 36, "nationality": "British", "hobbies": ["Chess", "Music"] }],
+  "pageInfo": { "nextCursor": "eyJ…", "hasMore": true, "total": 10000 }
+}
+```
+
+### `GET /api/users/facets`
+
+Accepts the same `search`, `nationality` and `hobby` params and returns the top 20 of each, sorted by count
+(descending) and then by value.
+
+```json
+{ "hobbies": [{ "value": "Reading", "count": 2412 }], "nationalities": [{ "value": "American", "count": 640 }] }
+```
+
+- **Hobby counts** apply every active filter: the hobbies of the users currently listed.
+- **Nationality counts** apply search and hobbies but **not** the nationality selection itself
+  (a disjunctive facet). Because nationality uses OR logic, this keeps the other nationalities visible,
+  so the user can add them to the selection.
+
+### `GET /api/health`
+
+Returns `{ "status": "ok", "uptime": 123 }` and runs a `SELECT 1` to check the database. Docker health checks use it.
+
+### Errors
+
+Every error has the same shape. Invalid params return 400, unknown routes 404, and anything else 500.
+
+```json
+{ "error": { "code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": [] } }
+```
+
+## Pagination: keyset, not OFFSET
+
+The cursor encodes `{ sortBy, sortOrder, value, id }` of the last row on the previous page. The next page is fetched with:
+
+```sql
+WHERE (sort_column, id) > (:value, :id)      -- '<' for desc
+ORDER BY sort_column ASC, id ASC             -- id is the tie-breaker
+```
+
+- **Deterministic:** `id` breaks ties, so the order is total.
+- **No duplicates or gaps**, even if rows are inserted between requests.
+- **Stays fast on deep pages**, because it uses the `(column, id)` index instead of scanning skipped rows.
+- A cursor issued for a different sort is rejected with `INVALID_CURSOR`.
+
+## Adding an endpoint
+
+1. Define the request schema and response types in `shared/`.
+2. Add repository methods (SQL only, whitelisted identifiers, `?` params).
+3. Add service logic, then a controller method that parses input with the Zod schema.
+4. Register the route in `routes/` and wire new classes in `container.ts`.
+5. Add Supertest tests in `server/test/`.
+
+## Security notes
+
+- All SQL values are bound parameters. Sort columns come from a whitelist (`USER_SORT_COLUMNS`).
+- LIKE wildcards in user input are escaped.
+- Input size is bounded: search ≤ 100 chars, ≤ 50 values per list, limit ≤ 100.
+- `helmet` sets security headers. nginx adds a Content Security Policy for the SPA.

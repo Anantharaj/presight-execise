@@ -1,0 +1,42 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Docs/Introduction" />
+
+# Presight Directory
+
+A full-stack user directory: **React 19** client, **Node.js / Express 5** API, **SQLite** as the source of truth.
+Users can search by name, filter by nationality and hobbies, sort, and scroll through a virtualized, infinitely loading list.
+
+This Storybook is the living documentation for the project. Everything a new contributor needs is here:
+
+| Section | What you'll find |
+| --- | --- |
+| **Docs / Architecture** | How the monorepo, server and client fit together, and the request lifecycle |
+| **Docs / Client Guide** | Folder conventions, container vs presentational components, URL state, data fetching, recipes |
+| **Docs / Server & API** | Endpoints, parameters, filter and pagination semantics, how to add an endpoint |
+| **Docs / Contributing** | Commands, code style, testing, and the definition of done |
+| **UI / \*** | Generic, reusable building blocks (Button, Chip, VirtualGrid, …) |
+| **Users / \*** | Domain presentational components (UserCard, FacetGroup, SortControls, …) |
+| **Pages / \*** | Full pages running against an in-memory mock API (no server needed) |
+
+## Quick start
+
+```bash
+yarn install        # installs every workspace
+yarn dev            # API on :4000 (auto-seeds SQLite on first run) + client on :5173
+yarn storybook      # this documentation on :6006
+yarn test           # server + client tests
+```
+
+Docker:
+
+```bash
+docker compose up --build   # open http://localhost:8080
+```
+
+## Tips for reading the stories
+
+- Every component story has an auto-generated **Docs** tab listing props and their descriptions.
+- Use the **Controls** panel to change props live.
+- The **Actions** panel logs callback calls (e.g. `onToggle`, `onRemove`).
+- `Pages / UserDirectoryPage` has variants for loading, empty and error states.

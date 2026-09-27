@@ -1,0 +1,38 @@
+import { Meta } from '@storybook/addon-docs/blocks';
+
+<Meta title="Docs/Contributing" />
+
+# Contributing
+
+## Commands (run from the repo root)
+
+| Command | What it does |
+| --- | --- |
+| `yarn dev` | API (tsx watch, :4000) + client (Vite, :5173) in parallel |
+| `yarn db:seed` | Recreate and seed the SQLite DB (`SEED_USER_COUNT`, `SEED_RANDOM_SEED`) |
+| `yarn test` | Vitest for server (Supertest) and client (Testing Library) |
+| `yarn typecheck` | `tsc` in every workspace |
+| `yarn lint` / `yarn format` | ESLint (flat config) / Prettier |
+| `yarn storybook` | This documentation |
+| `yarn build` | Production builds (server bundle + client assets) |
+
+## Code style
+
+- TypeScript `strict` with `noUncheckedIndexedAccess`. Avoid `any`. Use `import type` for types.
+- Name files after what they export: `UserCard.tsx`, `user.service.ts`, `useUserViewState.ts`.
+- Server files use a role suffix: `*.controller.ts`, `*.service.ts`, `*.repository.ts`, `*.model.ts`.
+- Comments explain **why**, not what.
+- Keep API contracts in `shared/`. Never duplicate a type across client and server.
+
+## Testing expectations
+
+- **Server:** every query behavior (filters, sorting, pagination, facets, validation) has a Supertest case.
+- **Client:** pure logic (URL state, formatting helpers) and interactive components get unit tests.
+- **Stories:** every new component gets stories for all its visual states. They double as visual tests.
+
+## Definition of done
+
+- [ ] `yarn typecheck && yarn lint && yarn test` pass
+- [ ] New components have stories (and tests if they contain logic)
+- [ ] Shared contracts are updated in `shared/`
+- [ ] README and docs are updated if behavior or setup changed
