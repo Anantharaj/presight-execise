@@ -21,6 +21,8 @@ export default tseslint.config(
     rules: {
       '@typescript-eslint/consistent-type-imports': 'error',
       '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      // Use the structured loggers (server: pino, client: lib/logger) instead.
+      'no-console': 'error',
     },
   },
   {
