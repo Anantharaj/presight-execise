@@ -1,17 +1,36 @@
 # Rendered by the nginx image entrypoint (envsubst) into /etc/nginx/conf.d/default.conf.
 # Only defined env vars (e.g. API_UPSTREAM) are substituted; nginx variables stay intact.
 
+# One JSON object per request on stdout; request_id matches the API's reqId.
+log_format json_access escape=json '{'
+    '"time":"$time_iso8601",'
+    '"service":"presight-client",'
+    '"reqId":"$request_id",'
+    '"remoteAddress":"$remote_addr",'
+    '"method":"$request_method",'
+    '"url":"$request_uri",'
+    '"status":$status,'
+    '"bytes":$body_bytes_sent,'
+    '"durationS":$request_time,'
+    '"upstreamStatus":"$upstream_status",'
+    '"upstreamDurationS":"$upstream_response_time",'
+    '"userAgent":"$http_user_agent",'
+    '"referer":"$http_referer"'
+'}';
+
 server {
     listen 8080;
     server_name _;
     root /usr/share/nginx/html;
     index index.html;
     server_tokens off;
+    access_log /dev/stdout json_access;
 
     gzip on;
     gzip_min_length 1024;
     gzip_types text/css application/javascript application/json image/svg+xml;
 
+    add_header X-Request-Id $request_id always;
     add_header X-Content-Type-Options "nosniff" always;
     add_header X-Frame-Options "DENY" always;
     add_header Referrer-Policy "strict-origin-when-cross-origin" always;
@@ -27,9 +46,12 @@ server {
         proxy_pass ${API_UPSTREAM};
         proxy_http_version 1.1;
         proxy_set_header Host $host;
+        proxy_set_header X-Request-Id $request_id;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
+        # nginx adds its own X-Request-Id (same value); avoid sending it twice.
+        proxy_hide_header X-Request-Id;
         proxy_connect_timeout 5s;
         proxy_read_timeout 30s;
     }
