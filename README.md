@@ -1,119 +1,189 @@
-# Presight Frontend Exercise
+# Presight Directory
 
-Build a small full-stack user directory application. The goal is to evaluate how you design a searchable, filterable, paginated UI backed by persisted data and clear API boundaries.
+A full-stack user directory. You can search by name, filter by nationality and hobbies, sort, and scroll through a
+virtualized, infinitely loading list. SQLite is the source of truth.
 
-The application should include:
+| Layer | Stack |
+| --- | --- |
+| Client | React 19, Vite 7, TypeScript, Tailwind CSS 4, TanStack Query 5, TanStack Virtual 3, React Router 7 |
+| Server | Node.js 22+ (built-in `node:sqlite`), Express 5, Zod 4, Pino |
+| Shared | `@presight/shared`: Zod schemas, constants and types used by both sides |
+| Tooling | Yarn workspaces + Lerna, Vitest, Testing Library, Supertest, Storybook 9, ESLint 9, Prettier |
+| Runtime | Docker: `nginx` (client + `/api` reverse proxy) and `node` (API) with a named volume for the DB |
 
-- A React client.
-- A Node.js API server.
-- A SQLite database used as the source of truth for user data.
-- Docker configuration for running the application locally.
+The original brief is in [docs/EXERCISE.md](docs/EXERCISE.md).
 
-## Scenario
+---
 
-Users need to browse a large directory of people, search by name, and narrow results by nationality and hobbies. The filter sidebar should help users discover useful filters based on the result set they are currently viewing.
+## Quick start (local)
 
-## Requirements
+Requires **Node.js ≥ 22.13** (for the built-in `node:sqlite`) and **Yarn 1.x**.
 
-### Data Model
-
-Seed a SQLite database with enough records to make pagination, infinite scroll, search, and filter counts meaningful.
-
-Each user should have:
-
-- `avatar`
-- `first_name`
-- `last_name`
-- `age`
-- `nationality`
-- `hobbies`, from 0 to 10 hobbies per user
-
-Choose a data model that supports the required behavior.
-
-SQLite must be the persisted source of user data.
-
-### API
-
-Expose an API that supports:
-
-- Paginated user results.
-- Text filtering from user input across `first_name` and `last_name`.
-- Filtering by one or more nationalities.
-- Filtering by one or more hobbies.
-- Sorting by `first_name`, `last_name`, `age`, and `nationality`.
-- Pagination metadata so the client can determine whether more results are available.
-- Top 20 hobbies for the active text filter and filter state, including `{ value, count }`.
-- Top 20 nationalities for the active text filter and filter state, including `{ value, count }`.
-
-The top 20 values and counts must reflect the currently applied text filter and selected filters, not the global dataset.
-
-Filter semantics:
-
-- Multiple selected hobbies should match users who have all selected hobbies.
-- Multiple selected nationalities should match users from any selected nationality.
-- Text, hobby, and nationality filters should apply together.
-
-Sorting semantics:
-
-- Sorted results must be deterministic. Use `id` as a final tie-breaker when values are equal.
-- Pagination must respect the active sort without duplicate or missing users.
-
-### Client
-
-Build a React interface that includes:
-
-- A text filter input for `first_name` and `last_name`.
-- A virtualized, infinitely scrolling list of user cards.
-- A sidebar containing the top 20 hobbies and top 20 nationalities for the current result set, including counts.
-- Controls for applying and removing hobby and nationality filters.
-- Controls for choosing sort field and sort direction.
-- Loading, empty, and error states.
-- A responsive layout that remains usable on desktop and mobile.
-
-User cards should follow this structure:
-
-```text
-|----------------------------------|
-| avatar      first_name+last_name |
-|             nationality      age |
-|                                  |
-|             (2 hobbies) (+n)     |
-|----------------------------------|
+```bash
+yarn install
+yarn dev
 ```
 
-Show up to 2 hobbies on the card. If the user has more hobbies, display the remaining count as `+n`.
+- Client: http://localhost:5173
+- API: http://localhost:4000/api/health
 
-Use a virtual scroll implementation for the list.
+On first start the server creates `server/data/presight.db`, runs the migrations and **auto-seeds 10,000 users**.
+Vite proxies `/api` to the server.
 
-When the text filter or selected filters change, the client must refresh both:
+### Database seeding
 
-- The paginated user list.
-- The top 20 hobbies and nationalities in the sidebar.
+```bash
+yarn db:seed                                   # recreate & reseed (deterministic, seed=42)
+SEED_USER_COUNT=50000 yarn db:seed             # bigger dataset
+SEED_RANDOM_SEED=7 yarn db:seed                # different deterministic dataset
+```
 
-The text filter value, selected hobbies, selected nationalities, sort field, and sort direction must be reflected in the URL query string. Reloading or sharing the URL should restore the same view state.
+Configuration lives in `server/.env` (copy it from [server/.env.example](server/.env.example)):
 
-## Implementation Notes
+| Var | Default | Purpose |
+| --- | --- | --- |
+| `PORT` / `HOST` | `4000` / `0.0.0.0` | API bind address |
+| `DB_PATH` | `data/presight.db` | SQLite file (relative to `server/`) |
+| `SEED_ON_START` | `true` | Seed automatically when the DB is empty |
+| `SEED_USER_COUNT` | `10000` | Number of users to generate |
+| `SEED_RANDOM_SEED` | `42` | Faker seed, so the dataset is reproducible |
+| `LOG_LEVEL` | `info` | Pino log level |
 
-- Keep the database setup easy to run locally.
-- Include seed logic or a documented command that creates the SQLite database.
-- Include a `Dockerfile` and `docker-compose.yml` that can run the application locally.
+The client reads `API_PROXY_TARGET` (dev proxy target) and `VITE_API_BASE_URL` (defaults to same-origin). See
+[client/.env.example](client/.env.example).
 
-## Evaluation Focus
+---
 
-We will pay particular attention to:
+## Docker Compose
 
-- Correct data persistence and API behavior.
-- Correct filtering, sorting, pagination, and top 20 counts.
-- Smooth infinite scrolling with virtualization.
-- URL-synced state.
-- Clear loading, empty, and error states.
-- Easy local and Docker-based setup.
+```bash
+docker compose up --build        # http://localhost:8080
+CLIENT_PORT=3000 docker compose up --build   # use another host port
+```
 
-## Deliverables
+| Service | Image | Role |
+| --- | --- | --- |
+| `client` | `nginx-unprivileged` | Serves the built SPA (SPA fallback, cache headers, CSP) and proxies `/api/*` to `server:4000` |
+| `server` | `node:24-alpine` | Self-contained API bundle (no `node_modules`), runs as non-root. The DB lives on the `db-data` volume |
 
-Please provide:
+The client starts only after the server's health check passes. Useful commands:
 
-- Source code for the React client and Node.js server.
-- A `Dockerfile` and `docker-compose.yml`.
-- Instructions for setup, database seeding, and running locally.
-- Instructions for running with Docker Compose.
+```bash
+docker compose run --rm server node dist/seed.js   # reseed the volume
+docker compose down -v                             # stop and delete the database volume
+docker compose logs -f server
+```
+
+To add a service (e.g. a cache, or a second API), add it to `docker-compose.yml` and, if it is HTTP, add a
+`location` block in [client/nginx/default.conf.template](client/nginx/default.conf.template).
+
+---
+
+## Scripts (repo root)
+
+| Command | Description |
+| --- | --- |
+| `yarn dev` | Server (tsx watch) and client (Vite) in parallel |
+| `yarn build` | Production builds of all workspaces |
+| `yarn test` | Server (Supertest) and client (Testing Library) tests |
+| `yarn typecheck` | `tsc` in every workspace |
+| `yarn lint` / `yarn format` | ESLint / Prettier |
+| `yarn storybook` | Component library and developer docs at http://localhost:6006 |
+| `yarn db:seed` | Recreate and seed the SQLite database |
+
+---
+
+## API
+
+| Endpoint | Description |
+| --- | --- |
+| `GET /api/users` | Paginated users. Params: `search`, `nationality` (repeatable), `hobby` (repeatable), `sortBy`, `sortOrder`, `limit`, `cursor` |
+| `GET /api/users/facets` | Top 20 `hobbies` and `nationalities` as `{ value, count }` for the current `search` / `nationality` / `hobby` |
+| `GET /api/health` | Liveness check plus a database check |
+
+```bash
+curl 'http://localhost:4000/api/users?search=an&nationality=Indian&nationality=German&hobby=Chess&sortBy=age&sortOrder=desc&limit=20'
+curl 'http://localhost:4000/api/users/facets?hobby=Chess'
+```
+
+**Filter semantics**
+
+- **Search:** case-insensitive substring match on `first_name + ' ' + last_name`. LIKE wildcards are escaped.
+- **Nationalities:** a user matches **any** selected nationality (`IN`).
+- **Hobbies:** a user must have **all** selected hobbies (`GROUP BY … HAVING COUNT = n`).
+- Search, nationality and hobby filters apply together (AND).
+
+**Facet counts**
+
+- **Hobbies** apply every active filter, so they are the hobbies of the users currently listed.
+- **Nationalities** apply search and hobbies but not the nationality selection itself (a disjunctive facet).
+  Nationality uses OR logic, so this keeps other nationalities visible and selectable.
+
+**Sorting and pagination**
+
+- Keyset (cursor) pagination on `(sort_column, id)`. `id` is the final tie-breaker, so the order is deterministic.
+  There are no duplicate or missing users between pages, and deep pages stay fast.
+- Response: `{ data, pageInfo: { nextCursor, hasMore, total } }`.
+- A cursor is tied to the sort it was issued for. Reusing it with a different sort returns `400 INVALID_CURSOR`.
+
+Full reference: Storybook → **Docs / Server & API**.
+
+---
+
+## Project structure
+
+```
+shared/src/            constants, Zod schemas (query contracts), API/DTO types
+server/src/
+  config/              env (Zod-validated), logger
+  db/                  connection, migrations/ (PRAGMA user_version), seed/
+  models/              row types, mappers, whitelisted sort columns
+  repositories/        SQL (implements an interface, so storage can be swapped)
+  services/            business logic (cursor, facet policy)
+  controllers/         HTTP adapters (validate → service → JSON)
+  routes/              routers mounted at /api
+  middlewares/         error handler, 404
+  container.ts         composition root (dependency injection)
+  app.ts / server.ts   Express app factory / process entry (graceful shutdown)
+server/test/           Supertest API + pagination property tests
+client/src/
+  app/                 providers, router, query client
+  pages/               route-level layouts
+  containers/          smart components (URL state + queries)
+  components/ui/       reusable, generic UI (each with stories)
+  components/users/    domain presentational components (each with stories)
+  queries/             TanStack Query hooks + key factory
+  api/                 typed HTTP functions
+  state/               URL ⇄ view-state (pure functions + hook)
+  hooks/ lib/          generic hooks and utilities
+  mocks/               fixtures and an in-memory mock API for Storybook
+  docs/                Storybook MDX developer guides
+```
+
+## Client behavior
+
+- **URL is the source of truth:** `?q=…&nationality=…&hobby=…&sort=…&order=…`. Reload, share, and
+  Back/Forward all restore the view.
+- Any change to search or filters refetches both the list and the facets. Previous results stay visible (dimmed)
+  while new ones load. Changing the sort refetches only the list.
+- `VirtualGrid` virtualizes rows of a responsive 1–N column grid and loads the next page before you reach the end.
+- **States:** skeletons on first load; a spinner while updating; an empty state with "Clear filters"; error states
+  with Retry for the list, for the next page, and for the facets.
+- **Layout:** the sidebar sits on the left on desktop (≥ 1024 px) and becomes an accessible `<dialog>` drawer on
+  mobile.
+
+## Testing
+
+```bash
+yarn test
+```
+
+- **Server:** filter semantics, tie-breaking, search escaping, facets (including the disjunctive nationality
+  facet), validation errors, and a pagination walk over 400 seeded users for **every sort field and direction**
+  (asserting no duplicates, no gaps, and correct order).
+- **Client:** URL state round-trips, `SearchInput` debounce, `UserCard` `+n` logic, and `FacetGroup` interactions.
+
+## Contributing / AI assistants
+
+- Human contributors: Storybook → **Docs / Contributing** and **Docs / Client Guide**.
+- AI coding assistants: follow [AGENTS.md](AGENTS.md).
