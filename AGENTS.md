@@ -96,6 +96,20 @@ Run `yarn typecheck && yarn test` after any change and report the result. Never 
 - Do not add dependencies with known vulnerabilities. Prefer the platform (`node:sqlite`, `fetch`, `<dialog>`)
   over new packages.
 
+## 5a. Logging rules
+
+- `console.*` is banned by ESLint. Use the server logger (Pino) or the client `logger` in `client/src/lib/logger.ts`.
+- **Server:** inside a request, use `req.log` or `getLogger(fallback)` from `src/logging/request-context.ts`, so the
+  line carries `reqId`. Outside a request, use the injected root logger. Log structured fields, not interpolated
+  strings: `log.warn({ query, durationMs }, 'Slow query')`.
+- Log an error **once**, at the boundary (the error middleware or the process handlers). Don't log and rethrow.
+- Levels: `fatal` = process exits · `error` = unexpected failure / 5xx · `warn` = 4xx, slow or degraded ·
+  `info` = lifecycle and one access line per request · `debug` = diagnostics such as SQL timings.
+- **Never log** secrets, tokens, cookies, request bodies or personal data (e.g. search text). Extend `REDACT_PATHS`
+  in `config/logger.ts` if a new sensitive field appears.
+- **Client:** report through `logger.warn` / `logger.error`, with flat `context` values and no personal data. Failed
+  queries are already reported centrally in `app/query-client.ts`, so do not add per-component error logging.
+
 ## 6. Code style
 
 - TypeScript `strict` + `noUncheckedIndexedAccess`. No `any`. No non-null `!` unless the invariant is obvious.

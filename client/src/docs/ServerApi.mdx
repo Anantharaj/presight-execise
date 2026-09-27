@@ -69,10 +69,37 @@ Returns `{ "status": "ok", "uptime": 123 }` and runs a `SELECT 1` to check the d
 ### Errors
 
 Every error has the same shape. Invalid params return 400, unknown routes 404, and anything else 500.
+`requestId` matches the `X-Request-Id` response header and the server log lines.
 
 ```json
-{ "error": { "code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": [] } }
+{ "error": { "code": "VALIDATION_ERROR", "message": "Invalid request parameters", "details": [], "requestId": "d68a…" } }
 ```
+
+### `POST /api/client-logs`
+
+The browser reports warnings and errors here. The server writes them into its own log stream, tagged
+`source: "client"`. Accepts `application/json` or `text/plain` (for `navigator.sendBeacon`). Returns `204`.
+
+```json
+{ "events": [{ "level": "error", "message": "API request failed", "timestamp": "2026-09-27T10:00:00Z",
+               "url": "http://localhost:8080/", "requestId": "d68a…", "context": { "query": "users.list" } }] }
+```
+
+Limits: at most 10 events, message ≤ 1000 characters, stack ≤ 4000, 20 flat context keys, a 64 KB body, and
+`CLIENT_LOGS_PER_MINUTE` requests per IP (429 `RATE_LIMITED` beyond that).
+
+## Logging
+
+| Where | What | How |
+| --- | --- | --- |
+| `config/logger.ts` | Root Pino logger | JSON to stdout, ISO time, textual levels, `service` and `env` fields, redaction. Pretty output in development |
+| `logging/http-logger.ts` | Access log and request id | `pino-http` with a compact req/res shape, level by status, `/api/health` skipped, `X-Request-Id` reused or generated |
+| `logging/request-context.ts` | Request-scoped logger | `AsyncLocalStorage`. `getLogger(fallback)` returns a logger that already carries `reqId` |
+| `repositories/*` | Query timing | `debug` for every query, `warn` when it takes at least `SLOW_QUERY_MS` |
+| `middlewares/error-handler` | Unexpected errors | Logged once, with the stack and `reqId` |
+| `server.ts` | Process crashes | `fatal`, then exit |
+
+Log with structured fields: `log.warn({ query, durationMs }, 'Slow query')`, not template strings.
 
 ## Pagination: keyset, not OFFSET
 

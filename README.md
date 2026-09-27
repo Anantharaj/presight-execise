@@ -47,7 +47,9 @@ Configuration lives in `server/.env` (copy it from [server/.env.example](server/
 | `SEED_ON_START` | `true` | Seed automatically when the DB is empty |
 | `SEED_USER_COUNT` | `10000` | Number of users to generate |
 | `SEED_RANDOM_SEED` | `42` | Faker seed, so the dataset is reproducible |
-| `LOG_LEVEL` | `info` | Pino log level |
+| `LOG_LEVEL` | `info` | Pino log level (`debug` also logs every SQL query with its duration) |
+| `SLOW_QUERY_MS` | `200` | Queries at or above this duration are logged at `warn` |
+| `CLIENT_LOGS_PER_MINUTE` | `60` | Per-IP rate limit for `POST /api/client-logs` |
 
 The client reads `API_PROXY_TARGET` (dev proxy target) and `VITE_API_BASE_URL` (defaults to same-origin). See
 [client/.env.example](client/.env.example).
@@ -100,6 +102,7 @@ To add a service (e.g. a cache, or a second API), add it to `docker-compose.yml`
 | `GET /api/users` | Paginated users. Params: `search`, `nationality` (repeatable), `hobby` (repeatable), `sortBy`, `sortOrder`, `limit`, `cursor` |
 | `GET /api/users/facets` | Top 20 `hobbies` and `nationalities` as `{ value, count }` for the current `search` / `nationality` / `hobby` |
 | `GET /api/health` | Liveness check plus a database check |
+| `POST /api/client-logs` | Browser error and warning reports (`{ events: [...] }`), written to the server log stream. Zod-validated, 64 KB max, rate limited |
 
 ```bash
 curl 'http://localhost:4000/api/users?search=an&nationality=Indian&nationality=German&hobby=Chess&sortBy=age&sortOrder=desc&limit=20'
@@ -172,6 +175,38 @@ client/src/
 - **Layout:** the sidebar sits on the left on desktop (≥ 1024 px) and becomes an accessible `<dialog>` drawer on
   mobile.
 
+## Logging
+
+All logs are **structured JSON on stdout** (12-factor). Docker collects them, and they can be shipped unchanged to
+Loki, ELK, Datadog or CloudWatch.
+
+| Source | Format | Contents |
+| --- | --- | --- |
+| nginx (`service: presight-client`) | JSON access log | `reqId`, method, URL, status, bytes, duration, upstream status and duration |
+| API (`service: presight-server`) | Pino JSON | one access line per request (level by status: 5xx `error`, 4xx `warn`); startup, migrations and seeding; slow queries; unhandled errors with stack; `fatal` on crash |
+| Browser (`source: client`) | via `POST /api/client-logs` | uncaught errors, unhandled rejections, failed API calls, route errors |
+
+**Request correlation:**
+
+1. nginx generates `$request_id` and forwards it as `X-Request-Id`.
+2. The API reuses it, or generates a UUID when called directly.
+3. The ID is returned in the `X-Request-Id` response header and in `error.requestId` of error bodies.
+4. It is bound to every server log line of that request, including repository query logs, through
+   `AsyncLocalStorage`.
+5. The client attaches it to its API error reports.
+
+```bash
+docker compose logs -f server                      # JSON
+docker compose logs server --no-log-prefix | grep <reqId>
+LOG_LEVEL=debug yarn dev                           # pretty output locally, including SQL timings
+```
+
+**Privacy and safety:**
+- Request headers are not logged. `authorization`, `cookie` and `set-cookie` are redacted as a safeguard.
+- Client reports send only the query-key prefix (e.g. `users.list`), never the search text.
+
+**Next step:** add OpenTelemetry tracing (`trace_id` / `span_id` on log lines).
+
 ## Testing
 
 ```bash
@@ -180,8 +215,11 @@ yarn test
 
 - **Server:** filter semantics, tie-breaking, search escaping, facets (including the disjunctive nationality
   facet), validation errors, and a pagination walk over 400 seeded users for **every sort field and direction**
-  (asserting no duplicates, no gaps, and correct order).
-- **Client:** URL state round-trips, `SearchInput` debounce, `UserCard` `+n` logic, and `FacetGroup` interactions.
+  (asserting no duplicates, no gaps, and correct order). Logging: request-ID generation and propagation,
+  access-log levels, health-check suppression, header redaction, slow queries, and client-log ingestion, validation
+  and rate limiting.
+- **Client:** URL state round-trips, `SearchInput` debounce, `UserCard` `+n` logic, `FacetGroup` interactions, the
+  logger's batching, levels and truncation, and `ApiError` request IDs.
 
 ## Contributing / AI assistants
 

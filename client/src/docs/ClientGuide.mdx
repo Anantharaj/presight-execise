@@ -61,6 +61,29 @@ Search typing uses `replace` (no history spam). Filter and sort changes `push`, 
 - `placeholderData: keepPreviousData` keeps old results visible (dimmed) while new ones load.
 - Errors are `ApiError` instances. 4xx responses are not retried.
 
+## Logging and error reporting
+
+Never call `console.*` directly (ESLint forbids it). Use the logger in `lib/logger.ts`:
+
+```ts
+import { logger } from '@/lib/logger';
+
+logger.warn('Export failed', { error, context: { component: 'ExportButton' } });
+```
+
+| Level | Console (dev / prod) | Sent to `/api/client-logs` |
+| --- | --- | --- |
+| `debug` / `info` | dev only | no |
+| `warn` / `error` | dev, and `error` in prod | yes, batched (10 events or 5 s) |
+
+- Batches go out with `navigator.sendBeacon`, so they survive page unloads. Queued events are flushed when the tab is
+  hidden.
+- `app/error-reporting.ts` reports uncaught errors and unhandled promise rejections.
+- `app/query-client.ts` reports every failed query once (`error` for network/5xx, `warn` for 4xx), including the
+  server's `requestId`. Containers only render the error state.
+- `RouteErrorPage` reports render crashes.
+- Keep `context` flat and free of personal data, such as search text or names.
+
 ## Virtualization
 
 `VirtualGrid` (generic, in `components/ui`) uses `@tanstack/react-virtual`:
