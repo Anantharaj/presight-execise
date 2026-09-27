@@ -1,13 +1,36 @@
 {
-  "name": "presight-server",
+  "name": "@presight/server",
   "version": "1.0.0",
-  "main": "index.js",
+  "private": true,
   "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch --env-file-if-exists=.env src/server.ts",
+    "build": "tsup",
+    "start": "node --disable-warning=ExperimentalWarning dist/server.js",
+    "db:seed": "tsx src/db/seed.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json"
+  },
   "dependencies": {
-    "express": "~5.1.0"
+    "@faker-js/faker": "^9",
+    "@presight/shared": "1.0.0",
+    "compression": "^1",
+    "express": "^5.1",
+    "helmet": "^8",
+    "pino": "^9",
+    "pino-http": "^10",
+    "zod": "^4"
   },
   "devDependencies": {
-    "@types/express": "~5.0.1",
-    "@types/node-fetch": "~2.6.12"
+    "@types/compression": "^1",
+    "@types/express": "^5",
+    "@types/supertest": "^6",
+    "pino-pretty": "^13",
+    "supertest": "^7",
+    "tsup": "^8",
+    "tsx": "^4",
+    "vitest": "^3.2"
   }
 }

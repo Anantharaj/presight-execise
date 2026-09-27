@@ -29,3 +29,13 @@ yarn-error.log*
 
 .parcel-cache
 .idea/
+
+# sqlite data
+server/data/
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+storybook-static/
+*.tsbuildinfo
