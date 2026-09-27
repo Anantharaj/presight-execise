@@ -1,5 +1,7 @@
 import type { FacetItem, SortField, SortOrder, User, UserFilters } from '@presight/shared';
+import type { Logger } from '../config/logger';
 import type { Database } from '../db/connection';
+import { getLogger } from '../logging/request-context';
 import { toUser, USER_SORT_COLUMNS, type UserRow } from '../models/user.model';
 import { escapeLike, joinWhere, placeholders, type SqlFragment } from '../utils/sql';
 
@@ -38,7 +40,11 @@ const USER_COLUMNS = `
 `;
 
 export class SqliteUserRepository implements UserRepository {
-  constructor(private readonly db: Database) {}
+  constructor(
+    private readonly db: Database,
+    private readonly logger: Logger,
+    private readonly slowQueryMs: number,
+  ) {}
 
   findPage({ filters, sortBy, sortOrder, limit, after }: FindUsersPageParams): User[] {
     const column = USER_SORT_COLUMNS[sortBy];
@@ -54,51 +60,68 @@ export class SqliteUserRepository implements UserRepository {
     }
 
     const where = joinWhere(fragments);
-    const rows = this.db
-      .prepare(
-        `SELECT ${USER_COLUMNS} FROM users u ${where.sql}
-         ORDER BY ${column} ${direction}, u.id ${direction}
-         LIMIT ?`,
-      )
-      .all(...where.params, limit) as unknown as UserRow[];
+    const rows = this.timed('users.findPage', () =>
+      this.db
+        .prepare(
+          `SELECT ${USER_COLUMNS} FROM users u ${where.sql}
+           ORDER BY ${column} ${direction}, u.id ${direction}
+           LIMIT ?`,
+        )
+        .all(...where.params, limit),
+    ) as unknown as UserRow[];
 
     return rows.map(toUser);
   }
 
   count(filters: UserFilters): number {
     const where = joinWhere(this.filterFragments(filters));
-    const row = this.db
-      .prepare(`SELECT COUNT(*) AS total FROM users u ${where.sql}`)
-      .get(...where.params) as { total: number };
+    const row = this.timed('users.count', () =>
+      this.db.prepare(`SELECT COUNT(*) AS total FROM users u ${where.sql}`).get(...where.params),
+    ) as { total: number };
     return row.total;
   }
 
   hobbyFacets(filters: UserFilters, limit: number): FacetItem[] {
     const where = joinWhere(this.filterFragments(filters));
-    return this.db
-      .prepare(
-        `SELECT h.name AS value, COUNT(*) AS count
-         FROM user_hobbies uh
-         JOIN hobbies h ON h.id = uh.hobby_id
-         WHERE uh.user_id IN (SELECT u.id FROM users u ${where.sql})
-         GROUP BY h.id
-         ORDER BY count DESC, value ASC
-         LIMIT ?`,
-      )
-      .all(...where.params, limit) as unknown as FacetItem[];
+    return this.timed('users.hobbyFacets', () =>
+      this.db
+        .prepare(
+          `SELECT h.name AS value, COUNT(*) AS count
+           FROM user_hobbies uh
+           JOIN hobbies h ON h.id = uh.hobby_id
+           WHERE uh.user_id IN (SELECT u.id FROM users u ${where.sql})
+           GROUP BY h.id
+           ORDER BY count DESC, value ASC
+           LIMIT ?`,
+        )
+        .all(...where.params, limit),
+    ) as unknown as FacetItem[];
   }
 
   nationalityFacets(filters: UserFilters, limit: number): FacetItem[] {
     const where = joinWhere(this.filterFragments(filters, { ignoreNationality: true }));
-    return this.db
-      .prepare(
-        `SELECT u.nationality AS value, COUNT(*) AS count
-         FROM users u ${where.sql}
-         GROUP BY u.nationality
-         ORDER BY count DESC, value ASC
-         LIMIT ?`,
-      )
-      .all(...where.params, limit) as unknown as FacetItem[];
+    return this.timed('users.nationalityFacets', () =>
+      this.db
+        .prepare(
+          `SELECT u.nationality AS value, COUNT(*) AS count
+           FROM users u ${where.sql}
+           GROUP BY u.nationality
+           ORDER BY count DESC, value ASC
+           LIMIT ?`,
+        )
+        .all(...where.params, limit),
+    ) as unknown as FacetItem[];
+  }
+
+  /** Logs every query at debug and anything slower than the threshold at warn. */
+  private timed<T>(query: string, work: () => T): T {
+    const started = performance.now();
+    const result = work();
+    const durationMs = Math.round((performance.now() - started) * 100) / 100;
+    const log = getLogger(this.logger);
+    if (durationMs >= this.slowQueryMs) log.warn({ query, durationMs }, 'Slow query');
+    else log.debug({ query, durationMs }, 'Query executed');
+    return result;
   }
 
   private filterFragments(filters: UserFilters, options: FilterOptions = {}): SqlFragment[] {

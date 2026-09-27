@@ -14,6 +14,8 @@ const envSchema = z.object({
   SEED_ON_START: booleanString,
   SEED_USER_COUNT: z.coerce.number().int().positive().max(1_000_000).default(10_000),
   SEED_RANDOM_SEED: z.coerce.number().int().default(42),
+  SLOW_QUERY_MS: z.coerce.number().int().nonnegative().default(200),
+  CLIENT_LOGS_PER_MINUTE: z.coerce.number().int().positive().default(60),
 });
 
 export type Env = z.infer<typeof envSchema>;
