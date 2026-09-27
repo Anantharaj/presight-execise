@@ -70,6 +70,7 @@ export function installMockApi({ mode = 'ok', delayMs = 400, userCount = 1000 }:
   globalThis.fetch = async (input, init) => {
     const url = new URL(input instanceof Request ? input.url : String(input), window.location.origin);
     if (!url.pathname.startsWith('/api/')) return original(input, init);
+    if (url.pathname === API_ROUTES.clientLogs) return new Response(null, { status: 204 });
 
     await wait(delayMs, init?.signal);
     if (mode === 'error') {

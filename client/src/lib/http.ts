@@ -1,4 +1,4 @@
-import type { ApiErrorBody } from '@presight/shared';
+import { REQUEST_ID_HEADER, type ApiErrorBody } from '@presight/shared';
 import { env } from '@/config/env';
 
 export type QueryValue = string | number | boolean | null | undefined | readonly string[];
@@ -8,6 +8,8 @@ export class ApiError extends Error {
     public readonly status: number,
     public readonly code: string,
     message: string,
+    /** Server correlation id; quote it when reporting a problem. */
+    public readonly requestId?: string,
   ) {
     super(message);
     this.name = 'ApiError';
@@ -47,6 +49,7 @@ export async function httpGet<T>(
       response.status,
       body?.error.code ?? 'HTTP_ERROR',
       body?.error.message ?? `Request failed with status ${response.status}`,
+      response.headers.get(REQUEST_ID_HEADER) ?? body?.error.requestId,
     );
   }
   return (await response.json()) as T;
