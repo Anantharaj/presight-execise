@@ -1,7 +1,9 @@
 import type { Server } from 'node:http';
+import { Writable } from 'node:stream';
 import { pino } from 'pino';
 import { createApp } from '../src/app';
-import { createContainer } from '../src/container';
+import { createLogger } from '../src/config/logger';
+import { createContainer, type ContainerOptions } from '../src/container';
 import { openDatabase, transaction, type Database } from '../src/db/connection';
 import { runMigrations } from '../src/db/migrations';
 
@@ -41,11 +43,32 @@ export function insertUsers(db: Database, users: FixtureUser[]) {
   });
 }
 
-export function createTestApp(db: Database) {
-  return createApp({ container: createContainer(db), logger: pino({ level: 'silent' }) });
+export function createTestApp(db: Database, options: Partial<ContainerOptions> = {}) {
+  const container = createContainer(db, {
+    logger: pino({ level: 'silent' }),
+    slowQueryMs: 1_000,
+    clientLogsPerMinute: 1_000,
+    ...options,
+  });
+  return createApp({ container });
 }
 
 /** One loopback server per suite avoids supertest's per-request ephemeral-port collisions. */
-export function startTestServer(db: Database): Server {
-  return createTestApp(db).listen(0, '127.0.0.1');
+export function startTestServer(db: Database, options: Partial<ContainerOptions> = {}): Server {
+  return createTestApp(db, options).listen(0, '127.0.0.1');
+}
+
+export type LogLine = Record<string, unknown> & { level: string; msg: string };
+
+/** A production-configured logger whose JSON output is captured in memory. */
+export function createCapturingLogger() {
+  const lines: LogLine[] = [];
+  const stream = new Writable({
+    write(chunk: Buffer, _encoding, callback) {
+      lines.push(JSON.parse(chunk.toString()) as LogLine);
+      callback();
+    },
+  });
+  const logger = createLogger({ LOG_LEVEL: 'debug', NODE_ENV: 'test' }, stream);
+  return { logger, lines };
 }
